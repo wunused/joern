@@ -73,11 +73,13 @@ private class RecoverForPythonFile(cpg: Cpg, cu: File, builder: DiffGraphBuilder
   }
 
   override def visitAssignments(a: OpNodes.Assignment): Set[String] = {
+    logger.debug("override visitAssignments")
     a.argumentOut.l match {
       case List(i: Identifier, c: Call) if c.name.isBlank && c.signature.isBlank =>
         // This is usually some decorator wrapper
         c.argument.isMethodRef.headOption match {
-          case Some(mRef) => visitIdentifierAssignedToMethodRef(i, mRef)
+          case Some(mRef) => logger.debug("- override ident to methodRef")
+                              visitIdentifierAssignedToMethodRef(i, mRef)
           case None       => super.visitAssignments(a)
         }
       case _ => super.visitAssignments(a)
@@ -99,13 +101,20 @@ private class RecoverForPythonFile(cpg: Cpg, cu: File, builder: DiffGraphBuilder
     i.method.name.matches("(<module>|__init__)") || super.isFieldUncached(i)
 
   override def visitIdentifierAssignedToOperator(i: Identifier, c: Call, operation: String): Set[String] = {
+    logger.debug("override visitIdentiferAssignedToOperator")
     operation match {
-      case "<operator>.listLiteral"  => associateTypes(i, Set(s"${Constants.builtinPrefix}list"))
-      case "<operator>.tupleLiteral" => associateTypes(i, Set(s"${Constants.builtinPrefix}tuple"))
-      case "<operator>.dictLiteral"  => associateTypes(i, Set(s"${Constants.builtinPrefix}dict"))
-      case "<operator>.setLiteral"   => associateTypes(i, Set(s"${Constants.builtinPrefix}set"))
-      case Operators.conditional     => associateTypes(i, Set(s"${Constants.builtinPrefix}bool"))
-      case _                         => super.visitIdentifierAssignedToOperator(i, c, operation)
+      case "<operator>.listLiteral"  => logger.debug("- ident to listLiteral")
+                                        associateTypes(i, Set(s"${Constants.builtinPrefix}list"))
+      case "<operator>.tupleLiteral" => logger.debug("- ident to tupleLiteral")
+                                        associateTypes(i, Set(s"${Constants.builtinPrefix}tuple"))
+      case "<operator>.dictLiteral"  => logger.debug("- ident to dictLiteral")
+                                        associateTypes(i, Set(s"${Constants.builtinPrefix}dict"))
+      case "<operator>.setLiteral"   => logger.debug("- ident to setLiteral")
+                                        associateTypes(i, Set(s"${Constants.builtinPrefix}set"))
+      case Operators.conditional     => logger.debug("- ident to conditional")
+                                        associateTypes(i, Set(s"${Constants.builtinPrefix}bool"))
+      case _                         => logger.debug("- defer to super")
+                                        super.visitIdentifierAssignedToOperator(i, c, operation)
     }
   }
 
@@ -124,6 +133,7 @@ private class RecoverForPythonFile(cpg: Cpg, cu: File, builder: DiffGraphBuilder
 
   override def visitIdentifierAssignedToFieldLoad(i: Identifier, fa: FieldAccess): Set[String] = {
     val fieldParents = getFieldParents(fa)
+    logger.debug(s"override visitIdentifierAssignedToFieldLoad: '${i.name}' to field load '${getFieldName(fa)}'")
     fa.astChildren.l match {
       case List(base: Identifier, fi: FieldIdentifier) if base.name.equals("self") && fieldParents.nonEmpty =>
         val referencedFields = cpg.typeDecl.fullNameExact(fieldParents.toSeq*).member.nameExact(fi.canonicalName)
@@ -143,13 +153,18 @@ private class RecoverForPythonFile(cpg: Cpg, cu: File, builder: DiffGraphBuilder
   }
 
   override def getFieldParents(fa: FieldAccess): Set[String] = {
+    logger.debug(s"- getting field parents for: ${getFieldName(fa)}")
     if (fa.method.name == "<module>") {
       Set(fa.method.fullName)
     } else if (fa.method.typeDecl.nonEmpty) {
-      val parentTypes       = fa.method.typeDecl.fullName.toSet
+      // This parentTypes does not account for nested fieldAccess nodes.
+      //val parentTypes       = fa.method.typeDecl.fullName.toSet
+      val parentTypes         = super.getFieldParents(fa)
       val baseTypeFullNames = cpg.typeDecl.fullNameExact(parentTypes.toSeq*).inheritsFromTypeFullName.toSet
+      logger.debug(s"-- ${(parentTypes ++ baseTypeFullNames).filterNot(_.matches("(?i)(any|object)")).mkString(",")}")
       (parentTypes ++ baseTypeFullNames).filterNot(_.matches("(?i)(any|object)"))
     } else {
+      logger.debug("- deferring to super")
       super.getFieldParents(fa)
     }
   }
@@ -211,6 +226,7 @@ private class RecoverForPythonFile(cpg: Cpg, cu: File, builder: DiffGraphBuilder
   }
 
   override protected def visitIdentifierAssignedToTypeRef(i: Identifier, t: TypeRef, rec: Option[String]): Set[String] =
+    logger.debug(s"override visitIdentifierAssignedToTypeRef: '${i.name}' -> '${t.typeFullName}'")
     t.typ.referencedTypeDecl
       .map(_.fullName.stripSuffix("<meta>"))
       .map(td => symbolTable.append(CallAlias(i.name, rec), Set(td)))

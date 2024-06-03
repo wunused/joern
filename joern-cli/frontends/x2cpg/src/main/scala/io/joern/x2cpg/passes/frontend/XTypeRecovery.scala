@@ -409,18 +409,30 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
   protected def visitAssignments(a: Assignment): Set[String] = visitAssignmentArguments(a.argumentOut.l)
 
   protected def visitAssignmentArguments(args: List[AstNode]): Set[String] = args match {
-    case List(i: Identifier, b: Block)                             => visitIdentifierAssignedToBlock(i, b)
-    case List(i: Identifier, c: Call)                              => visitIdentifierAssignedToCall(i, c)
-    case List(x: Identifier, y: Identifier)                        => visitIdentifierAssignedToIdentifier(x, y)
-    case List(i: Identifier, l: Literal) if state.isFirstIteration => visitIdentifierAssignedToLiteral(i, l)
-    case List(i: Identifier, m: MethodRef)                         => visitIdentifierAssignedToMethodRef(i, m)
-    case List(i: Identifier, t: TypeRef)                           => visitIdentifierAssignedToTypeRef(i, t)
-    case List(c: Call, i: Identifier)                              => visitCallAssignedToIdentifier(c, i)
-    case List(x: Call, y: Call)                                    => visitCallAssignedToCall(x, y)
-    case List(c: Call, l: Literal) if state.isFirstIteration       => visitCallAssignedToLiteral(c, l)
-    case List(c: Call, m: MethodRef)                               => visitCallAssignedToMethodRef(c, m)
-    case List(c: Call, b: Block)                                   => visitCallAssignedToBlock(c, b)
-    case _                                                         => Set.empty
+    case List(i: Identifier, b: Block)                             => logger.debug("- ident to block")
+                                                                      visitIdentifierAssignedToBlock(i, b)
+    case List(i: Identifier, c: Call)                              => logger.debug("- ident to call")
+                                                                      visitIdentifierAssignedToCall(i, c)
+    case List(x: Identifier, y: Identifier)                        => logger.debug("- ident to ident")
+                                                                      visitIdentifierAssignedToIdentifier(x, y)
+    case List(i: Identifier, l: Literal) if state.isFirstIteration => logger.debug("- ident to literal")
+                                                                      visitIdentifierAssignedToLiteral(i, l)
+    case List(i: Identifier, m: MethodRef)                         => logger.debug("- ident to methodRef")
+                                                                      visitIdentifierAssignedToMethodRef(i, m)
+    case List(i: Identifier, t: TypeRef)                           => logger.debug("- ident to typeRef")
+                                                                      visitIdentifierAssignedToTypeRef(i, t)
+    case List(c: Call, i: Identifier)                              => logger.debug("- call to ident")
+                                                                      visitCallAssignedToIdentifier(c, i)
+    case List(x: Call, y: Call)                                    => logger.debug("- call to call")
+                                                                      visitCallAssignedToCall(x, y)
+    case List(c: Call, l: Literal) if state.isFirstIteration       => logger.debug("- call to literal")
+                                                                      visitCallAssignedToLiteral(c, l)
+    case List(c: Call, m: MethodRef)                               => logger.debug("- call to methodRef")
+                                                                      visitCallAssignedToMethodRef(c, m)
+    case List(c: Call, b: Block)                                   => logger.debug("- call to block")
+                                                                      visitCallAssignedToBlock(c, b)
+    case _                                                         => logger.debug("- unhandled")
+                                                                      Set.empty
   }
 
   /** Visits an identifier being assigned to the result of some operation.
@@ -463,6 +475,7 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
     * constructor invocation.
     */
   protected def visitIdentifierAssignedToCall(i: Identifier, c: Call): Set[String] = {
+    logger.debug(s"visitIdentifierAssignedToCall: '${i.name}' -> '${c.name}' @ ${debugLocation(i)}")
     if (c.name.startsWith("<operator>")) {
       visitIdentifierAssignedToOperator(i, c, c.name)
     } else if (symbolTable.contains(c) && isConstructor(c)) {
@@ -537,6 +550,7 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
     */
   protected def getFieldParents(fa: FieldAccess): Set[String] = {
     val fieldName = getFieldName(fa).split(Pattern.quote(pathSep)).last
+    logger.debug(s"- (super) getting field parents for: ${fieldName}")
     Try(cpg.member.nameExact(fieldName).typeDecl.fullName.filterNot(_.contains("ANY")).toSet) match
       case Failure(exception) =>
         logger.warn("Unable to obtain name of member's parent type declaration", exception)
@@ -548,11 +562,18 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
     * which this method uses [[isField]] to determine.
     */
   protected def associateTypes(symbol: LocalVar, fa: FieldAccess, types: Set[String]): Set[String] = {
+    logger.debug(s"- associateTypes")
     fa.astChildren.filterNot(_.code.matches("(this|self)")).headOption.collect {
       case fi: FieldIdentifier =>
+        logger.debug(s"- associating types (FI): ${getFieldParents(fa)}.${fi.canonicalName} <- ${types}")
         getFieldParents(fa).foreach(t => persistMemberWithTypeDecl(t, fi.canonicalName, types))
       case i: Identifier if isField(i) =>
+        logger.debug(s"- associating types (I): ${getFieldParents(fa)}.${i.name} <- ${types}")
         getFieldParents(fa).foreach(t => persistMemberWithTypeDecl(t, i.name, types))
+      case c: Call if c.name == "<operator>.fieldAccess" =>
+        val fieldName = getFieldName(fa).split(Pattern.quote(pathSep)).last
+        logger.debug(s"- associating types (C): fieldAccess ${c.name} ${fieldName} <- ${types}")
+        getFieldParents(fa).foreach(t => persistMemberWithTypeDecl(t, fieldName, types))
     }
     symbolTable.append(symbol, types)
   }
@@ -602,11 +623,16 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
   /** Visits an identifier being assigned to an operator call.
     */
   protected def visitIdentifierAssignedToOperator(i: Identifier, c: Call, operation: String): Set[String] = {
+    logger.debug("visitIdentifierAssignedToOperator")
     operation match {
-      case Operators.alloc       => visitIdentifierAssignedToConstructor(i, c)
-      case Operators.fieldAccess => visitIdentifierAssignedToFieldLoad(i, c.asInstanceOf[FieldAccess])
-      case Operators.indexAccess => visitIdentifierAssignedToIndexAccess(i, c)
-      case Operators.cast        => visitIdentifierAssignedToCast(i, c)
+      case Operators.alloc       => logger.debug("- ident to constructor")
+                                    visitIdentifierAssignedToConstructor(i, c)
+      case Operators.fieldAccess => logger.debug("- ident to field load")
+                                    visitIdentifierAssignedToFieldLoad(i, c.asInstanceOf[FieldAccess])
+      case Operators.indexAccess => logger.debug("- ident to index access")
+                                    visitIdentifierAssignedToIndexAccess(i, c)
+      case Operators.cast        => logger.debug("- ident to cast")
+                                    visitIdentifierAssignedToCast(i, c)
       case x                     => logger.debug(s"Unhandled operation $x (${c.code}) @ ${debugLocation(c)}"); Set.empty
     }
   }
@@ -614,6 +640,7 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
   /** Visits an identifier being assigned to a constructor and attempts to speculate the constructor path.
     */
   protected def visitIdentifierAssignedToConstructor(i: Identifier, c: Call): Set[String] = {
+    logger.debug("visitIdentifierAssignedToConstructor")
     val constructorPaths = symbolTable.get(c).map(t => t.concat(s"$pathSep${Defines.ConstructorMethodName}"))
     associateTypes(i, constructorPaths)
   }
@@ -667,17 +694,21 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
     m: MethodRef,
     rec: Option[String] = None
   ): Set[String] =
+    logger.debug(s"visitIdentifierAssignedToMethodRef: '${i.name}' -> '${m.methodFullName}' @ ${debugLocation(i)}")
     symbolTable.append(CallAlias(i.name, rec), Set(m.methodFullName))
 
   /** Will handle an identifier holding a type pointer.
     */
   protected def visitIdentifierAssignedToTypeRef(i: Identifier, t: TypeRef, rec: Option[String] = None): Set[String] =
+    logger.debug(s"visitIdentifierAssignedToTypeRef: '${i.name}' -> '${t.typeFullName}' @ ${debugLocation(i)}")
     symbolTable.append(CallAlias(i.name, rec), Set(t.typeFullName))
 
   /** Visits a call assigned to an identifier. This is often when there are operators involved.
     */
   protected def visitCallAssignedToIdentifier(c: Call, i: Identifier): Set[String] = {
+    logger.debug(s"visitCallAssignedToIdentifier: '${c.name}' -> '${i.name}' @ ${debugLocation(i)}")
     val rhsTypes = symbolTable.get(i)
+    logger.debug(s"- rhsTypes: ${rhsTypes}")
     assignTypesToCall(c, rhsTypes)
   }
 
@@ -703,8 +734,11 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
     if (types.nonEmpty) {
       getSymbolFromCall(x) match {
         case (lhs, globalKeys) if globalKeys.nonEmpty =>
+          logger.debug(s"assignTypesToCall: ${globalKeys.mkString(",")}")
           globalKeys.foreach { (fieldVar: FieldPath) =>
-            persistMemberWithTypeDecl(fieldVar.compUnitFullName, fieldVar.identifier, types)
+            val fieldVarIdentifier = fieldVar.identifier.split(Pattern.quote(pathSep)).last
+            logger.debug(s"- fieldVar compUnit: ${fieldVar.compUnitFullName}; fieldVar: ${fieldVarIdentifier}; types: ${types.mkString(",")}")
+            persistMemberWithTypeDecl(fieldVar.compUnitFullName, fieldVarIdentifier, types)
           }
           symbolTable.append(lhs, types)
         case (lhs, _) => symbolTable.append(lhs, types)
@@ -782,6 +816,7 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
   }
 
   protected def visitCallAssignedToLiteral(c: Call, l: Literal): Set[String] = {
+    logger.debug(s"visitCallAssignedToLiteral: '${c.name}' -> '${l.typeFullName}' @ ${debugLocation(c)}")
     if (c.name.equals(Operators.indexAccess)) {
       // For now, we will just handle this on a very basic level
       c.argumentOut.l match {
@@ -803,6 +838,8 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
     } else if (c.name.equals(Operators.fieldAccess)) {
       val fa        = c.asInstanceOf[FieldAccess]
       val fieldName = getFieldName(fa)
+      logger.debug(s"- associating types: '${fieldName}': ${getLiteralType(l)}")
+      logger.debug(s"- fieldParents: ${getFieldParents(fa).mkString(",")}")
       associateTypes(LocalVar(fieldName), fa, getLiteralType(l))
     } else {
       logger.warn(s"Unhandled call assigned to literal point ${c.name} @ ${debugLocation(c)}")
@@ -843,6 +880,7 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
     */
   protected def visitIdentifierAssignedToFieldLoad(i: Identifier, fa: FieldAccess): Set[String] = {
     val fieldName = getFieldName(fa)
+    logger.debug(s"visitIdentifierAssignedToFieldLoad: '${i.name}' to field load '$fieldName' @ ${debugLocation(i)}")
     fa.argumentOut.l match {
       case ::(base: Identifier, ::(fi: FieldIdentifier, _)) if symbolTable.contains(LocalVar(base.name)) =>
         // Get field from global table if referenced as a variable
@@ -1168,7 +1206,9 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
     *   the types to associate.
     */
   protected def persistMemberWithTypeDecl(typeFullName: String, memberName: String, types: Set[String]): Unit =
+    logger.debug(s"- persistMemberWithTypeDecl: ${typeFullName} . ${memberName} <- ${types.mkString(",")}")
     typeDeclIterator(typeFullName).member.nameExact(memberName).headOption.foreach { m =>
+      logger.debug(s"-- storing type info: ${m.name} <- ${types.mkString(",")}")
       storeNodeTypeInfo(m, types.toSeq)
     }
 
@@ -1185,6 +1225,7 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
       .headOption
 
   private def storeNodeTypeInfo(storedNode: StoredNode, types: Seq[String]): Unit = {
+    logger.debug("- storeNodeTypeInfo")
     lazy val existingTypes = storedNode.getKnownTypes
 
     val hasUnknownTypeFullName = storedNode
@@ -1195,6 +1236,7 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
       storedNode match {
         case m: Member =>
           // To avoid overwriting member updates, we store them elsewhere until the end
+          logger.debug(s"-- storing node type info for member '${m.name}' <- ${types.mkString(",")}")
           newTypesForMembers.updateWith(m) {
             case Some(ts) => Option(ts ++ types)
             case None     => Option(types.toSet)
