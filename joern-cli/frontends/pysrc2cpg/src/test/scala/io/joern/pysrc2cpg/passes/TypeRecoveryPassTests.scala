@@ -1370,4 +1370,32 @@ class TypeRecoveryPassTests extends PySrc2CpgFixture(withOssDataflow = false) {
     }
   }
 
+  "assignment to nested fields in a class method" should {
+    val cpg = code(
+      """
+        |class Foo(object):
+        |   def __init__(self):
+        |     self.name = None
+        |     self.value = None
+        |""".stripMargin,
+      Seq("src", "foo.py").mkString(File.separator)
+    ).moreCode(
+      """
+        | class Bar(object):
+        |   def __init__(self, foo: Foo, value: str):
+        |     self.foo = foo
+        |     self.foo.name = "baz"
+        |     self.foo.value = value
+        |""".stripMargin,
+      Seq("src", "bar.py").mkString(File.separator)
+    )
+
+    "recover the member type for the owning class when assignment is from a literal" in {
+      cpg.typeDecl("Foo").member.nameExact("name").dynamicTypeHintFullName.toSet shouldBe Set("__builtin.str", "__builtin.None")
+    }
+
+    "recover the member type for the owning class when assignment is from an identifier with known type" in {
+      cpg.typeDecl("Foo").member.nameExact("value").dynamicTypeHintFullName.toSet shouldBe Set("__builtin.int", "__builtin.None")
+    }
+  }
 }
