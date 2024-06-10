@@ -72,4 +72,84 @@ class InheritanceFullNamePassTests extends PySrc2CpgFixture(withOssDataflow = fa
     }
   }
 
+  "multiple inherited types from same module" should {
+    lazy val cpg = code(
+      """
+        |class Foo(object):
+        |   pass
+        |
+        |class Bar(object):
+        |   pass
+        |
+        |class Baz(Foo, Bar):
+        |   pass
+        |""".stripMargin,
+        "foo.py"
+    )
+
+    "resolve all types being inherited" in {
+      cpg.typeDecl("Baz").inheritsFromTypeFullName.toSet shouldBe Set("foo.py:<module>.Foo", "foo.py:<module>.Bar")
+      cpg.typeDecl("Baz").baseType.fullName.toSet shouldBe Set("foo.py:<module>.Foo", "foo.py:<module>.Bar")
+    }
+  }
+
+  "multiple inherited type full names from modules" should {
+    lazy val cpg = code(
+      """
+        |class Foo(object):
+        |   pass
+        |""".stripMargin,
+      "foo.py"
+    ).moreCode(
+      """
+        |class Bar(object):
+        |   pass
+        |""".stripMargin,
+      "bar.py"
+    ).moreCode(
+      """
+        |import foo
+        |import bar
+        |
+        |class Baz(foo.Foo, bar.Bar):
+        |   pass
+      """.stripMargin,
+      "baz.py")
+
+    "resolve all types being inherited fully" in {
+      cpg.typeDecl("Baz").inheritsFromTypeFullName.toSet shouldBe Set("foo.py:<module>.Foo", "bar.py:<module>.Bar")
+      cpg.typeDecl("Baz").baseType.fullName.toSet shouldBe Set("foo.py:<module>.Foo", "bar.py:<module>.Bar")
+    }
+  }
+
+  "multiple inherited type full names from modules with from/import" should {
+    lazy val cpg = code(
+      """
+        |class Foo(object):
+        |   pass
+        |""".stripMargin,
+      Seq("src", "foo.py").mkString(File.separator)
+    ).moreCode(
+      """
+        |class Bar(object):
+        |   pass
+        |""".stripMargin,
+      Seq("src", "bar.py").mkString(File.separator)
+    ).moreCode(
+      """
+        |from foo import Foo
+        |from bar import Bar
+        |
+        |class Baz(Foo, Bar):
+        |   pass
+      """.stripMargin,
+      Seq("src", "baz.py").mkString(File.separator)
+    )
+
+    "resolve all types being inherited fully" in {
+      cpg.typeDecl("Baz").inheritsFromTypeFullName.toSet shouldBe Set("src/foo.py:<module>.Foo", "src/bar.py:<module>.Bar")
+      cpg.typeDecl("Baz").baseType.fullName.toSet shouldBe Set("src/foo.py:<module>.Foo", "src/bar.py:<module>.Bar")
+    }
+  }
+
 }
