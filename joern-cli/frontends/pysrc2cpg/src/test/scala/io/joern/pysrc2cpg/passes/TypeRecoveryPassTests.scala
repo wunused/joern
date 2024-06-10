@@ -1381,7 +1381,9 @@ class TypeRecoveryPassTests extends PySrc2CpgFixture(withOssDataflow = false) {
       Seq("src", "foo.py").mkString(File.separator)
     ).moreCode(
       """
-        | class Bar(object):
+        |from foo import Foo
+        |
+        |class Bar(object):
         |   def __init__(self, foo: Foo, value: str):
         |     self.foo = foo
         |     self.foo.name = "baz"
