@@ -197,7 +197,34 @@ private class RecoverForPythonFile(cpg: Cpg, cu: File, builder: DiffGraphBuilder
     }
   }
 
+  val collectionTypes = Set("__builtin.dict")
+
+  def hasCollectionType(l: Local): Boolean = {
+    val types = (l.typeFullName +: l.dynamicTypeHintFullName).toSet
+    collectionTypes.intersect(types).nonEmpty
+  }
+
+  def hasCollectionType(i: Identifier): Boolean = {
+    val types = (i.typeFullName +: i.dynamicTypeHintFullName).toSet
+    collectionTypes.intersect(types).nonEmpty
+  }
+
+  def hasCollectionType(m: Member): Boolean = {
+    val types = (m.typeFullName +: m.dynamicTypeHintFullName).toSet
+    collectionTypes.intersect(types).nonEmpty
+  }
+
+  /** There has to be a better way of doing this than matching on each type */
+  def hasCollectionType(n: AstNode): Boolean = { n match {
+      case l: Local       => hasCollectionType(l)
+      case i: Identifier  => hasCollectionType(i)
+      case m: Member      => hasCollectionType(m)
+      case _              => false
+    }
+  }
+
   override protected def postSetTypeInformation(): Unit = {
+    logger.debug(s"postSetTypeInformation")
     super.postSetTypeInformation()
     cu.typeDecl
       .map(t => t -> t.inheritsFromTypeFullName.partition(itf => symbolTable.contains(LocalVar(itf))))
@@ -208,6 +235,46 @@ private class RecoverForPythonFile(cpg: Cpg, cu: File, builder: DiffGraphBuilder
           builder.setNodeProperty(t, PropertyNames.INHERITS_FROM_TYPE_FULL_NAME, resolvedTypes)
         }
       }
+
+    val collectionSymbols = symbolTable.itemsCopy.collect {
+      case (CollectionVar(collectionName, index), types) => (collectionName, types) }
+        .groupBy(_._1) /* Turn the array into a map of collectionName => Set(types) */
+        .view.mapValues(arr => arr.map(v => v._2))
+        .mapValues(arr => arr.fold(Set.empty)((s1, s2) => s1 ++ s2))
+        .mapValues(s => s.map("__collection." + _))
+    logger.debug(s"- found collection type symbols: ${collectionSymbols.mkString(",")}")
+
+    /** This limits the type recovery to collections in the same compilation unit.
+     * Need to think about how to do this for setting information for members
+     * declared in other compilation units, I think.
+     */
+    val collectionNodes = cu.ast.collect {
+      case n: Local       => n
+      case n: Identifier  => n
+      case n: Member      => n
+    }.filter { hasCollectionType }
+
+    /* Now need to update every collectionNode that has new types in the collectionSymbols */
+    collectionNodes.foreach { node => node match {
+      case l: Local if collectionSymbols.contains(l.name) =>
+        logger.debug(s"- updating types for node ${l.name} <- ${collectionSymbols.get(l.name).mkString(",")}")
+        // TODO
+      case i: Identifier if collectionSymbols.contains(i.name) =>
+        logger.debug(s"- updating types for node ${i.name} <- ${collectionSymbols.get(i.name).mkString(",")}")
+        // TODO
+      case m: Member if collectionSymbols.contains(m.name) =>
+        logger.debug(s"- updating types for node ${m.name} <- ${collectionSymbols.get(m.name).mkString(",")}")
+
+        /** If the node does not already have the collection type information, then add them to the node's types. */
+        val existingTypes = (m.typeFullName +: m.dynamicTypeHintFullName).toSet
+        val newTypes = collectionSymbols.getOrElse(m.name, Set.empty) -- existingTypes
+        if (newTypes.nonEmpty) {
+          logger.debug(s"-- adding types: ${newTypes.mkString(",")}")
+          builder.setNodeProperty(m, PropertyNames.DYNAMIC_TYPE_HINT_FULL_NAME, (existingTypes ++ (newTypes.toSeq)))
+        }
+      case _  =>
+      }
+    }
   }
 
   override def prepopulateSymbolTable(): Unit = {
