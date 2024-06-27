@@ -267,10 +267,11 @@ private class RecoverForPythonFile(cpg: Cpg, cu: File, builder: DiffGraphBuilder
 
         /** If the node does not already have the collection type information, then add them to the node's types. */
         val existingTypes = (m.typeFullName +: m.dynamicTypeHintFullName).toSet
-        val newTypes = collectionSymbols.getOrElse(m.name, Set.empty) -- existingTypes
+        val newTypes = collectionSymbols.getOrElse(m.name, Set.empty).filterNot(_ == "ANY") -- existingTypes
         if (newTypes.nonEmpty) {
           logger.debug(s"-- adding types: ${newTypes.mkString(",")}")
-          builder.setNodeProperty(m, PropertyNames.DYNAMIC_TYPE_HINT_FULL_NAME, (existingTypes ++ (newTypes.toSeq)))
+          // TODO: Remove "ANY"
+          builder.setNodeProperty(m, PropertyNames.DYNAMIC_TYPE_HINT_FULL_NAME, (existingTypes.filterNot(_ == "ANY") ++ (newTypes.toSeq)))
         }
       case _  =>
       }
