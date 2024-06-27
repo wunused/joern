@@ -741,9 +741,15 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
             persistMemberWithTypeDecl(fieldVar.compUnitFullName, fieldVarIdentifier, types)
           }
           symbolTable.append(lhs, types)
-        case (lhs, _) => symbolTable.append(lhs, types)
+        case (lhs, _) => {
+          logger.debug(s"assignTypesToCall: empty globalKeys")
+          symbolTable.append(lhs, types)
+        }
       }
-    } else Set.empty
+    } else {
+      logger.debug(s"assignTypesToCall: empty types")
+      Set.empty
+    }
   }
 
   /** Will attempt to retrieve index access types otherwise will return dummy value.
@@ -855,6 +861,7 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
   /** Generates an identifier for collection/index-access operations in the symbol table.
     */
   protected def indexAccessToCollectionVar(c: Call): Option[CollectionVar] = {
+    logger.debug("indexAccessToCollectionVar")
     def callName(x: Call) =
       if (x.name.equals(Operators.fieldAccess))
         getFieldName(x.asInstanceOf[FieldAccess])
@@ -868,7 +875,10 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
       case List(i: Identifier, idx: Literal)    => CollectionVar(i.name, idx.code)
       case List(i: Identifier, idx: Identifier) => CollectionVar(i.name, idx.code)
       case List(c: Call, idx: Call)             => CollectionVar(callName(c), callName(idx))
-      case List(c: Call, idx: Literal)          => CollectionVar(callName(c), idx.code)
+      case List(c: Call, idx: Literal)          => {
+        logger.debug(s"- ${callName(c)}, ${idx.code}")
+        CollectionVar(callName(c), idx.code)
+      }
       case List(c: Call, idx: Identifier)       => CollectionVar(callName(c), idx.code)
       case xs =>
         logger.debug(s"Unhandled index access ${xs.map(x => (x.label, x.code)).mkString(",")} @ ${debugLocation(c)}")
@@ -992,6 +1002,7 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
   /** Using an entry from the symbol table, will queue the CPG modification to persist the recovered type information.
     */
   protected def setTypeInformation(): Unit = {
+    logger.debug(s"setTypeInformation - symbolTable: ${symbolTable.itemsCopy.mkString(",")}")
     cu.ast
       .collect {
         case n: Local                                       => n
@@ -1225,7 +1236,7 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
       .headOption
 
   private def storeNodeTypeInfo(storedNode: StoredNode, types: Seq[String]): Unit = {
-    logger.debug("- storeNodeTypeInfo")
+    logger.debug(s"- storeNodeTypeInfo: ${storedNode} <- ${types.mkString(",")}")
     lazy val existingTypes = storedNode.getKnownTypes
 
     val hasUnknownTypeFullName = storedNode
@@ -1241,11 +1252,19 @@ abstract class RecoverForXCompilationUnit[CompilationUnitType <: AstNode](
             case Some(ts) => Option(ts ++ types)
             case None     => Option(types.toSet)
           }
-        case i: Identifier                               => storeIdentifierTypeInfo(i, types)
-        case l: Local                                    => storeLocalTypeInfo(l, types)
-        case c: Call if !c.name.startsWith("<operator>") => storeCallTypeInfo(c, types)
-        case _: Call                                     =>
+        case i: Identifier                               =>
+          logger.debug(s"-- storing node type info for identifier '${i.name}' <- ${types.mkString(",")}")
+          storeIdentifierTypeInfo(i, types)
+        case l: Local                                    =>
+          logger.debug(s"-- storing node type info for local '${l.name}' <- ${types.mkString(",")}")
+          storeLocalTypeInfo(l, types)
+        case c: Call if !c.name.startsWith("<operator>") =>
+          logger.debug(s"-- storing node type info for call '${c.name}' <- ${types.mkString(",")}")
+          storeCallTypeInfo(c, types)
+        case c: Call                                     =>
+          logger.debug(s"-- ignoring setting node type info for call '${c.name}'")
         case n =>
+          logger.debug(s"-- setTypes ${n} <- ${types.mkString(",")}")
           setTypes(n, types)
       }
     }
