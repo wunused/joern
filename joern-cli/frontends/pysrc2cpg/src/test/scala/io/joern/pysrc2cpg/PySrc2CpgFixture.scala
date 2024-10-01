@@ -34,8 +34,10 @@ class PySrcTestCpg extends DefaultTestCpg with PythonFrontend with SemanticTestC
   override def applyPostProcessingPasses(): Unit = {
     new ImportsPass(this).createAndApply()
     new PythonImportResolverPass(this).createAndApply()
-    new PythonInheritanceNamePass(this).createAndApply()
+    // The following two passes were applied in a different order than in the
+    // PythonSrcCpgGenerator class - fixed here to match
     new DynamicTypeHintFullNamePass(this).createAndApply()
+    new PythonInheritanceNamePass(this).createAndApply()
     new PythonTypeRecoveryPassGenerator(this).generate().foreach(_.createAndApply())
     new PythonTypeHintCallLinker(this).createAndApply()
     new NaiveCallLinker(this).createAndApply()

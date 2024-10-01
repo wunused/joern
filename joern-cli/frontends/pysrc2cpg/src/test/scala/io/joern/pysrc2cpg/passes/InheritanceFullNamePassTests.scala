@@ -31,6 +31,29 @@ class InheritanceFullNamePassTests extends PySrc2CpgFixture(withOssDataflow = fa
     }
   }
 
+  "inheritied type full names in same module" should {
+    lazy val cpg = code(
+      """
+       |class Parent(object):
+       |  pass
+       |
+       |class Child(Parent):
+       |  pass
+       |
+       |class Model(object):
+       |  def __init__(self, value: Parent):
+       |    self.value = value
+       |""".stripMargin,
+      "model.py"
+    )
+
+    "resolve the type being inherited fully" in {
+      def child = cpg.typeDecl("Child")
+      child.inheritsFromTypeFullName.l shouldBe Seq("model.py:<module>.Parent")
+      child.baseType.fullName.l shouldBe Seq("model.py:<module>.Parent")
+    }
+  }
+
   "inherited external types" should {
     lazy val cpg = code("""
         |from tortoise.models import Model
