@@ -1384,7 +1384,7 @@ class TypeRecoveryPassTests extends PySrc2CpgFixture(withOssDataflow = false) {
         |from foo import Foo
         |
         |class Bar(object):
-        |   def __init__(self, foo: Foo, value: str):
+        |   def __init__(self, foo: Foo, value: int):
         |     self.foo = foo
         |     self.foo.name = "baz"
         |     self.foo.value = value
@@ -1393,11 +1393,15 @@ class TypeRecoveryPassTests extends PySrc2CpgFixture(withOssDataflow = false) {
     )
 
     "recover the member type for the owning class when assignment is from a literal" in {
-      cpg.typeDecl("Foo").member.nameExact("name").dynamicTypeHintFullName.toSet shouldBe Set("__builtin.str", "__builtin.None")
+      val fooName = cpg.typeDecl("Foo").member.nameExact("name")
+      val nameTypes = fooName.typeFullName ++ fooName.dynamicTypeHintFullName
+      nameTypes.toSet shouldBe Set("__builtin.str", "__builtin.None")
     }
 
     "recover the member type for the owning class when assignment is from an identifier with known type" in {
-      cpg.typeDecl("Foo").member.nameExact("value").dynamicTypeHintFullName.toSet shouldBe Set("__builtin.int", "__builtin.None")
+      val fooValue = cpg.typeDecl("Foo").member.nameExact("value")
+      val valueTypes = fooValue.typeFullName ++ fooValue.dynamicTypeHintFullName
+      valueTypes.toSet shouldBe Set("__builtin.int", "__builtin.None")
     }
   }
 }
