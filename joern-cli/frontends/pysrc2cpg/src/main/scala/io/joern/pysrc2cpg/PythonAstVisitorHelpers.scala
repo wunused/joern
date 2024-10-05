@@ -513,6 +513,17 @@ trait PythonAstVisitorHelpers(implicit withSchemaValidation: ValidationMode) { t
     identifierNode
   }
 
+  protected def createIdentifierNodeTyped(
+    name: String,
+    memOp: MemoryOperation,
+    lineAndColumn: LineAndColumn,
+    typeName: String
+  ): NewIdentifier = {
+    val identifierNode = nodeBuilder.identifierNode(name, lineAndColumn, typeName)
+    contextStack.addVariableReference(identifierNode, memOp)
+    identifierNode
+  }
+
   protected def createIndexAccess(baseNode: NewNode, indexNode: NewNode, lineAndColumn: LineAndColumn): NewNode = {
     val code = codeOf(baseNode) + "[" + codeOf(indexNode) + "]"
     val indexAccessNode =

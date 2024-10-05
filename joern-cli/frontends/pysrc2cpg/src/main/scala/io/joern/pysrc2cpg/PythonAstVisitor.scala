@@ -822,18 +822,32 @@ class PythonAstVisitor(
   // TODO for now we ignore the annotation part and just emit the pure
   // assignment.
   def convert(annotatedAssign: ast.AnnAssign): NewNode = {
-    val targetNode = convert(annotatedAssign.target)
+    val annotationType = nodeBuilder.extractTypesFromHint(Some(annotatedAssign.annotation))
+    val targetNode = annotatedAssign.target match {
+      case name: ast.Name => annotationType match {
+        case Some(typeName) => convertTypedName(name, typeName)
+        case None           => convert(name)
+      }
+      case _ => convert(annotatedAssign.target)
+    }
 
     annotatedAssign.value match {
       case Some(value) =>
         val valueNode = convert(value)
         createAssignment(targetNode, valueNode, lineAndColOf(annotatedAssign))
       case None =>
-        // If there is no value, this is just an expr: annotation and since
-        // we for now ignore the annotation we emit just the expr because
-        // it may have side effects.
+        // If there is no value, this is just an expr: annotation
         targetNode
     }
+  }
+
+  def convertTypedName(name: ast.Name, typeName: String): nodes.NewNode = {
+    val memoryOperation = memOpMap.get(name).get
+    val identifier = createIdentifierNodeTyped(name.id, memoryOperation, lineAndColOf(name), typeName)
+    if (contextStack.isClassContext && memoryOperation == Store) {
+      createAndRegisterMember(identifier.name, lineAndColOf(name))
+    }
+    identifier
   }
 
   def convert(augAssign: ast.AugAssign): NewNode = {

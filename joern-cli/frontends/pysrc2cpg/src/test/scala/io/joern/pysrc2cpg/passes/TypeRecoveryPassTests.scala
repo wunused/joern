@@ -1404,4 +1404,30 @@ class TypeRecoveryPassTests extends PySrc2CpgFixture(withOssDataflow = false) {
       valueTypes.toSet shouldBe Set("__builtin.int", "__builtin.None")
     }
   }
+
+  "member type annotations" should {
+    val cpg = code(
+      """
+      |from library import make_value
+      |
+      |class Foo(object):
+      |   name: str
+      |   value: int = make_value()
+      |""".stripMargin
+    )
+
+    "be used for type recovery when no assignment is given" in {
+      val fooDecl = cpg.typeDecl("Foo").l
+      val nameMember = fooDecl.member.nameExact("name").l
+      val nameTypes = (nameMember.dynamicTypeHintFullName ++ nameMember.typeFullName)
+      nameTypes.toSet shouldBe Set("__builtin.str")
+    }
+
+    "be used for type recovery to complement assignment" in {
+      val fooDecl = cpg.typeDecl("Foo").l
+      val valueMember = fooDecl.member.nameExact("value").l
+      val valueTypes = (valueMember.dynamicTypeHintFullName ++ valueMember.typeFullName)
+      valueTypes.toSet shouldBe Set("__builtin.int", "library.py:<module>.make_value.<returnValue>")
+    }
+  }
 }
